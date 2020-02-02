@@ -97,7 +97,6 @@ Change POLICY.XML to the various polcies that were generated from the script.
 load config partial to-xpath /config/devices from-xpath /config/devices mode merge from POLICY.XML
 ```
 
-
 ## Known Issues:
 
 * Not all Port/Service types are correctly exported, some additional work on services and policies is required after the inital export. These are highlighted in the OUTPUT.LOG file.
