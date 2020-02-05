@@ -5,19 +5,19 @@
 ===============================================================================================================================================================
 '''
 # CISCO FIREPOWER MANAGEMENT CENTER CONFIGURATION
-CISCO_FMC_USERNAME = 'api-user'
-CISCO_FMC_PASSWORD = 'api-password'
-CISCO_FMC_HOSTNAME = 'hostname'
+CISCO_FMC_USERNAME = 'apiuser'
+CISCO_FMC_PASSWORD = 'apipassword'
+CISCO_FMC_HOSTNAME = 'cisco-fmc-hostname'
 
 # from github.com/daxm/fmcapi
 from fmcapi.fmc import *
 from fmcapi.api_objects import *
-from fmcapi.helper_functions import *
 
 import datetime
 import sys
 import os
 import requests_cache
+import logging
 
 # Configure Requests Cache
 requests_cache.install_cache(cache_name='cache_name', backend=None, expire_after=21600)
@@ -451,9 +451,128 @@ def export_security_policy():
 
             XML_FILE.write(XML)
 
+def export_nats():
+    logging.info('Export Cisco FMC NAT Policies')
+    with FMC(host=CISCO_FMC_HOSTNAME, username=CISCO_FMC_USERNAME, password=CISCO_FMC_PASSWORD, autodeploy=False) as FMC_CONNECTION:
+        CISCO_FMC_OBJECT = FTDNatPolicies(fmc=FMC_CONNECTION)
+        CISCO_FMC_NAT_POLCIES = CISCO_FMC_OBJECT.get()['items']
+        for CISCO_FMC_NAT_POLICY in CISCO_FMC_NAT_POLCIES:
+            logging.info(CISCO_FMC_NAT_POLICY['id'] + ':' + CISCO_FMC_NAT_POLICY['name'])
+            CISCO_FMC_NAT_OBJECT = ManualNatRules(fmc=FMC_CONNECTION)
+            # CISCO_FMC_NAT_RULES = AutoNatRules(fmc=FMC_CONNECTION)
+            CISCO_FMC_NAT_OBJECT.nat_policy(name=CISCO_FMC_NAT_POLICY['name'])
+            CISCO_FMC_NAT_RULES = CISCO_FMC_NAT_OBJECT.get()['items']
+
+            XML_FILE = open(CISCO_FMC_NAT_POLICY['name'] + '.xml', 'w+')
+
+            XML = ''
+            XML += '<config version="9.0.0" urldb="paloaltonetworks">\n'
+            XML += '  <devices>\n'
+            XML += '    <entry name="localhost.localdomain">\n'
+            XML += '      <device-group>\n'
+            XML += '        <entry name="' + CISCO_FMC_NAT_POLICY['name'] + '">\n'
+            XML += '          <post-rulebase>\n'
+            XML += '            <nat>\n'
+            XML += '              <rules>\n'
+
+            for CISCO_FMC_NAT_RULE in CISCO_FMC_NAT_RULES:
+
+                XML += '                <entry name="NAT RULE INDEX ' + str(CISCO_FMC_NAT_RULE['metadata']['index']) + '">\n'
+
+                # TO
+
+                XML += '                  <to>\n'
+                if CISCO_FMC_NAT_RULE.get('destinationInterface'):
+                    XML += '                    <member>' + CISCO_FMC_NAT_RULE['destinationInterface']['name'] + '</member>\n'                
+                else:
+                    XML += '                    <member>any</member>\n'                
+                XML += '                  </to>\n'
+                
+                # FROM
+
+                XML += '                  <from>\n'
+                if CISCO_FMC_NAT_RULE.get('sourceInterface'):
+                    XML += '                    <member>' + CISCO_FMC_NAT_RULE['sourceInterface']['name'] + '</member>\n'                
+                else:
+                    XML += '                    <member>any</member>\n'                
+                XML += '                  </from>\n'
+
+                # SOURCE
+
+                XML += '                  <source>\n'
+                if CISCO_FMC_NAT_RULE.get('originalSource'):
+                    XML += '                    <member>' + CISCO_FMC_NAT_RULE['originalSource']['name'] + '</member>\n'                
+                else:
+                    XML += '                    <member>any</member>\n'                
+                XML += '                  </source>\n'
+
+                # DESTINATION
+
+                XML += '                  <destination>\n'
+                if CISCO_FMC_NAT_RULE.get('originalDestination'):
+                    XML += '                    <member>' + CISCO_FMC_NAT_RULE['originalDestination']['name'] + '</member>\n'                
+                else:
+                    XML += '                    <member>any</member>\n'                
+                XML += '                  </destination>\n'
+
+                # SERVICE
+
+                if CISCO_FMC_NAT_RULE.get('originalSourcePort'):
+                    XML += '                <service>' + CISCO_FMC_NAT_RULE['originalSourcePort']['name'] + '</service>\n'      
+                else:
+                    XML += '                <service>any</service>'          
+
+                # DESCRIPTION
+
+                if CISCO_FMC_NAT_RULE.get('description'):
+                    XML += '                <description>' + CISCO_FMC_NAT_RULE['description'] + '</description>\n'                
+
+                # TRANSLATED SOURCE
+
+                if CISCO_FMC_NAT_RULE.get('translatedSource'):
+                    XML += '                  <source-translation>\n'
+                    XML += '                      <static-ip>\n'
+                    XML += '                        <translated-address>' + CISCO_FMC_NAT_RULE['translatedSource']['name'] + '</translated-address>\n'     
+                    XML += '                      </static-ip>\n'
+                    XML += '                  </source-translation>\n'
+
+                # TRANSLATED DESTINATION
+
+                if CISCO_FMC_NAT_RULE.get('translatedDestination'):
+                    XML += '                  <destination-translation>\n'
+                    XML += '                      <static-ip>\n'
+                    XML += '                        <translated-address>' + CISCO_FMC_NAT_RULE['translatedDestination']['name'] + '</translated-address>\n'     
+
+                    if CISCO_FMC_NAT_RULE.get('translatedDestinationPort'):
+                        XML += '                        <translated-port>' + CISCO_FMC_NAT_RULE['translatedDestinationPort']['name'] + '</translated-port>\n'
+
+                    XML += '                      </static-ip>\n'
+                    XML += '                  </destination-translation>\n'
+
+                # ENABLED OR DISABLED
+
+                if not(CISCO_FMC_NAT_RULE['enabled']):
+                    XML += '                  <disabled>yes</disabled>\n'
+
+                XML += '                </entry>\n'
+
+            XML += '              </rules>\n'
+            XML += '            </nat>\n'
+            XML += '          </post-rulebase>\n'
+            XML += '        </entry>\n'
+            XML += '      </device-group>\n'
+            XML += '    </entry>\n'
+            XML += '  </devices>\n'
+            XML += '</config>\n'
+
+            logging.info('\n' + XML)
+
+            XML_FILE.write(XML)
+
 # ==================================================================================================================
 #   MAIN CODE
 # ==================================================================================================================
+logging.info('Started:   ' + str(START_TIME))
 
 # RUN ALL FUNCTIONS
 export_hosts()
@@ -462,9 +581,9 @@ export_addressgroups()
 export_ranges()
 export_services()
 export_security_policy()
+export_nats()
 
 # END CODE
-logging.info('Started:   ' + str(START_TIME))
 END_TIME = datetime.datetime.now()
 logging.info('Completed: ' + str(END_TIME))
 
